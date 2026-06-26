@@ -1,0 +1,76 @@
+database:
+  name: financial_agent.db
+  engine: SQLite
+  description: >
+    A financial services database capturing customers, advisors, accounts,
+    portfolios, market data, transactions, loans, credit cards, and support
+    activity. Designed for a Text-to-SQL chatbot serving financial analysts
+    and customer service agents.
+
+table:
+  table_name: market_prices
+  description: >
+    Daily closing prices for securities. A time-series fact table with one
+    row per (security_id, price_date) pair. Used to compute current or
+    historical market value of holdings. Has no surrogate primary key —
+    the composite (security_id, price_date) is the unique identifier.
+  primary_key: null
+  composite_key: [security_id, price_date]
+
+  columns:
+    security_id:
+      type: INTEGER
+      nullable: false
+      description: FK to the security this price belongs to.
+    price_date:
+      type: DATE
+      nullable: false
+      description: Trading date of the closing price. Format YYYY-MM-DD.
+    closing_price:
+      type: REAL
+      nullable: true
+      description: End-of-day market price per share or unit in USD.
+
+  foreign_keys:
+    - column: security_id
+      references_table: securities
+      references_column: security_id
+      join_hint: "JOIN market_prices mp ON s.security_id = mp.security_id"
+
+  query_notes: >
+    CRITICAL: market_prices is a time-series table. Joining holdings to
+    market_prices WITHOUT filtering price_date causes row fan-out — every
+    holding row multiplies by every historical price date, producing wildly
+    incorrect totals. ALWAYS filter to a specific date.
+    To get the current (latest) price, use:
+      WHERE mp.price_date = (SELECT MAX(price_date) FROM market_prices)
+    OR for a specific security:
+      WHERE mp.price_date = (SELECT MAX(price_date) FROM market_prices WHERE security_id = ?)
+    This table has NO surrogate primary key. Do not query by a single integer ID.
+    Use (security_id, price_date) together to uniquely identify a row.
+
+  sample_queries:
+    - intent: "current price for a specific ticker"
+      sql: >
+        SELECT s.ticker, mp.price_date, mp.closing_price
+        FROM securities s
+        JOIN market_prices mp ON s.security_id = mp.security_id
+        WHERE s.ticker = 'AAPL'
+          AND mp.price_date = (SELECT MAX(price_date) FROM market_prices
+                               WHERE security_id = s.security_id);
+
+    - intent: "price history for a ticker"
+      sql: >
+        SELECT s.ticker, mp.price_date, mp.closing_price
+        FROM securities s
+        JOIN market_prices mp ON s.security_id = mp.security_id
+        WHERE s.ticker = 'AAPL'
+        ORDER BY mp.price_date DESC;
+
+    - intent: "current prices for all securities"
+      sql: >
+        SELECT s.ticker, s.company_name, mp.closing_price, mp.price_date
+        FROM securities s
+        JOIN market_prices mp ON s.security_id = mp.security_id
+        WHERE mp.price_date = (SELECT MAX(price_date) FROM market_prices)
+        ORDER BY s.ticker;

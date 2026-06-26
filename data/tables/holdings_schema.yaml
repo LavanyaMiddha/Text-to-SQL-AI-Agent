@@ -1,0 +1,94 @@
+database:
+  name: financial_agent.db
+  engine: SQLite
+  description: >
+    A financial services database capturing customers, advisors, accounts,
+    portfolios, market data, transactions, loans, credit cards, and support
+    activity. Designed for a Text-to-SQL chatbot serving financial analysts
+    and customer service agents.
+
+table:
+  table_name: holdings
+  description: >
+    Investment positions held within a portfolio — the number of shares of
+    each security owned. This is the bridge table between portfolios and
+    securities. Join with market_prices to compute current market value.
+    Join with securities for ticker and sector details.
+  primary_key: holding_id
+
+  columns:
+    holding_id:
+      type: INTEGER
+      nullable: false
+      description: Unique identifier for each holding record.
+    portfolio_id:
+      type: INTEGER
+      nullable: true
+      description: FK to the parent portfolio.
+    security_id:
+      type: INTEGER
+      nullable: true
+      description: FK to the security being held.
+    shares:
+      type: REAL
+      nullable: true
+      description: Number of shares (or units) held. May be fractional.
+
+  foreign_keys:
+    - column: portfolio_id
+      references_table: portfolios
+      references_column: portfolio_id
+      join_hint: "JOIN portfolios p ON h.portfolio_id = p.portfolio_id"
+    - column: security_id
+      references_table: securities
+      references_column: security_id
+      join_hint: "JOIN securities s ON h.security_id = s.security_id"
+
+  query_notes: >
+    holdings stores QUANTITY only (shares). It has no price information.
+    Market value = holdings.shares * market_prices.closing_price.
+    Always join market_prices with a MAX(price_date) filter to avoid
+    row fan-out (one holdings row would multiply by every historical price date).
+    Full path from customer to holdings:
+    customers → accounts → portfolios → holdings.
+
+  sample_queries:
+    - intent: "current market value of all holdings"
+      sql: >
+        SELECT s.ticker, s.company_name,
+               SUM(h.shares)                          AS total_shares,
+               mp.closing_price,
+               SUM(h.shares * mp.closing_price)       AS market_value
+        FROM holdings h
+        JOIN securities s     ON h.security_id  = s.security_id
+        JOIN market_prices mp ON h.security_id  = mp.security_id
+        WHERE mp.price_date = (SELECT MAX(price_date) FROM market_prices)
+        GROUP BY s.security_id, s.ticker, s.company_name, mp.closing_price
+        ORDER BY market_value DESC;
+
+    - intent: "holdings for a specific customer"
+      sql: >
+        SELECT s.ticker, s.company_name, s.sector,
+               h.shares,
+               mp.closing_price,
+               (h.shares * mp.closing_price) AS market_value
+        FROM customers c
+        JOIN accounts ac      ON c.customer_id   = ac.customer_id
+        JOIN portfolios p     ON ac.account_id   = p.account_id
+        JOIN holdings h       ON p.portfolio_id  = h.portfolio_id
+        JOIN securities s     ON h.security_id   = s.security_id
+        JOIN market_prices mp ON h.security_id   = mp.security_id
+        WHERE c.customer_id = ?
+          AND mp.price_date = (SELECT MAX(price_date) FROM market_prices);
+
+    - intent: "top 10 positions by total market value across all portfolios"
+      sql: >
+        SELECT s.ticker, s.company_name,
+               SUM(h.shares * mp.closing_price) AS total_market_value
+        FROM holdings h
+        JOIN securities s     ON h.security_id = s.security_id
+        JOIN market_prices mp ON h.security_id = mp.security_id
+        WHERE mp.price_date = (SELECT MAX(price_date) FROM market_prices)
+        GROUP BY s.security_id, s.ticker, s.company_name
+        ORDER BY total_market_value DESC
+        LIMIT 10;

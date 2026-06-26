@@ -1,0 +1,97 @@
+database:
+  name: financial_agent.db
+  engine: SQLite
+  description: >
+    A financial services database capturing customers, advisors, accounts,
+    portfolios, market data, transactions, loans, credit cards, and support
+    activity. Designed for a Text-to-SQL chatbot serving financial analysts
+    and customer service agents.
+
+table:
+  table_name: loans
+  description: >
+    Loan records for customers. Covers mortgages, auto loans, personal loans,
+    student loans, and home equity lines. Tracks both the original principal
+    disbursed and the current outstanding balance. One customer may hold
+    multiple loans of different types.
+  primary_key: loan_id
+
+  columns:
+    loan_id:
+      type: INTEGER
+      nullable: false
+      description: Unique identifier for each loan.
+    customer_id:
+      type: INTEGER
+      nullable: true
+      description: FK to the borrowing customer.
+    loan_type:
+      type: TEXT
+      nullable: true
+      description: Type of loan product.
+      sample_values: ["Mortgage", "Auto", "Personal", "Student", "Home Equity"]
+    principal:
+      type: REAL
+      nullable: true
+      description: Original loan amount disbursed in USD at origination.
+    interest_rate:
+      type: REAL
+      nullable: true
+      description: >
+        Annual interest rate stored as a decimal.
+        e.g., 0.065 = 6.5%. Multiply by 100 to display as a percentage.
+    outstanding_balance:
+      type: REAL
+      nullable: true
+      description: Remaining unpaid balance in USD as of the last update.
+
+  foreign_keys:
+    - column: customer_id
+      references_table: customers
+      references_column: customer_id
+      join_hint: "JOIN customers c ON l.customer_id = c.customer_id"
+
+  query_notes: >
+    interest_rate is stored as a decimal (0.065), not a percentage (6.5).
+    Always multiply by 100 when displaying to users: interest_rate * 100 || '%'.
+    outstanding_balance is the remaining debt — use this for current exposure.
+    principal is the original loan amount — use this for origination analysis.
+    A customer can have multiple loans. Use SUM(outstanding_balance) to get
+    total debt per customer. Use COUNT(loan_id) to find customers with multiple loans.
+    Debt-to-income ratio: SUM(outstanding_balance) / customers.annual_income.
+
+  sample_queries:
+    - intent: "total outstanding loan balance by loan type"
+      sql: >
+        SELECT loan_type,
+               COUNT(*)                 AS loan_count,
+               SUM(principal)           AS total_principal,
+               SUM(outstanding_balance) AS total_outstanding,
+               ROUND(AVG(interest_rate * 100), 2) AS avg_rate_pct
+        FROM loans
+        GROUP BY loan_type
+        ORDER BY total_outstanding DESC;
+
+    - intent: "debt-to-income ratio per customer"
+      sql: >
+        SELECT c.customer_id,
+               c.first_name || ' ' || c.last_name AS customer_name,
+               c.annual_income,
+               SUM(l.outstanding_balance)         AS total_debt,
+               ROUND(SUM(l.outstanding_balance) / NULLIF(c.annual_income, 0), 2) AS dti_ratio
+        FROM customers c
+        JOIN loans l ON c.customer_id = l.customer_id
+        GROUP BY c.customer_id, customer_name, c.annual_income
+        ORDER BY dti_ratio DESC;
+
+    - intent: "customers with more than one loan"
+      sql: >
+        SELECT c.customer_id,
+               c.first_name || ' ' || c.last_name AS customer_name,
+               COUNT(l.loan_id)           AS loan_count,
+               SUM(l.outstanding_balance) AS total_outstanding
+        FROM customers c
+        JOIN loans l ON c.customer_id = l.customer_id
+        GROUP BY c.customer_id, customer_name
+        HAVING loan_count > 1
+        ORDER BY loan_count DESC;

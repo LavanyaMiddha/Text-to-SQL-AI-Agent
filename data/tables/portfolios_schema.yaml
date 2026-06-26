@@ -1,0 +1,68 @@
+database:
+  name: financial_agent.db
+  engine: SQLite
+  description: >
+    A financial services database capturing customers, advisors, accounts,
+    portfolios, market data, transactions, loans, credit cards, and support
+    activity. Designed for a Text-to-SQL chatbot serving financial analysts
+    and customer service agents.
+
+table:
+  table_name: portfolios
+  description: >
+    Named investment portfolios linked to accounts. A single account may have
+    multiple portfolios with different strategies (e.g., "Growth", "Income").
+    Portfolios are the container for holdings — they hold no value themselves;
+    value is computed from the holdings they contain.
+  primary_key: portfolio_id
+
+  columns:
+    portfolio_id:
+      type: INTEGER
+      nullable: false
+      description: Unique identifier for each portfolio.
+    account_id:
+      type: INTEGER
+      nullable: true
+      description: FK to the account this portfolio belongs to.
+    portfolio_name:
+      type: TEXT
+      nullable: true
+      description: >
+        Human-readable label for the portfolio strategy
+        (e.g., "Growth Portfolio", "Income Portfolio", "Retirement Fund").
+
+  foreign_keys:
+    - column: account_id
+      references_table: accounts
+      references_column: account_id
+      join_hint: "JOIN accounts ac ON p.account_id = ac.account_id"
+
+  query_notes: >
+    portfolios has no value column of its own. Market value must be computed by
+    joining to holdings and market_prices:
+    SUM(holdings.shares * market_prices.closing_price).
+    Always filter market_prices to MAX(price_date) to avoid row fan-out.
+    Path from customer to portfolio: customers → accounts → portfolios.
+    Path from portfolio to market value: portfolios → holdings → market_prices.
+
+  sample_queries:
+    - intent: "list all portfolios for a customer"
+      sql: >
+        SELECT c.first_name || ' ' || c.last_name AS customer_name,
+               ac.account_type, p.portfolio_name
+        FROM customers c
+        JOIN accounts ac  ON c.customer_id  = ac.customer_id
+        JOIN portfolios p ON ac.account_id  = p.account_id
+        WHERE c.customer_id = ?;
+
+    - intent: "market value of each portfolio"
+      sql: >
+        SELECT p.portfolio_name,
+               SUM(h.shares * mp.closing_price) AS portfolio_value
+        FROM portfolios p
+        JOIN holdings h       ON p.portfolio_id = h.portfolio_id
+        JOIN market_prices mp ON h.security_id  = mp.security_id
+        WHERE mp.price_date = (SELECT MAX(price_date) FROM market_prices)
+        GROUP BY p.portfolio_id, p.portfolio_name
+        ORDER BY portfolio_value DESC;

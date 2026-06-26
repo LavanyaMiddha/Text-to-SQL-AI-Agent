@@ -1,0 +1,111 @@
+database:
+  name: financial_agent.db
+  engine: SQLite
+  description: >
+    A financial services database capturing customers, advisors, accounts,
+    portfolios, market data, transactions, loans, credit cards, and support
+    activity. Designed for a Text-to-SQL chatbot serving financial analysts
+    and customer service agents.
+
+table:
+  table_name: transactions
+  description: >
+    Account-level financial events — deposits, withdrawals, purchases,
+    payments, transfers, fees, interest, and dividends. Each row is one
+    transaction event tied to an account. The highest-volume table in
+    the schema — expect millions of rows in production.
+  primary_key: transaction_id
+
+  columns:
+    transaction_id:
+      type: INTEGER
+      nullable: false
+      description: Unique identifier for each transaction.
+    account_id:
+      type: INTEGER
+      nullable: true
+      description: FK to the account this transaction belongs to.
+    transaction_date:
+      type: DATE
+      nullable: true
+      description: Date the transaction occurred. Format YYYY-MM-DD.
+    transaction_type:
+      type: TEXT
+      nullable: true
+      description: Category of the transaction event.
+      sample_values: ["Deposit", "Withdrawal", "Purchase", "Payment", "Transfer", "Fee", "Interest", "Dividend"]
+    amount:
+      type: REAL
+      nullable: true
+      description: >
+        Transaction amount in USD. Positive = credit/inflow to account;
+        negative = debit/outflow from account. Use ABS(amount) when
+        computing total spend regardless of sign.
+    merchant:
+      type: TEXT
+      nullable: true
+      description: >
+        Name of the payee or counterparty (e.g., "Amazon", "Shell", "Payroll").
+        NULL for internal transfers, fees, and interest entries.
+
+  foreign_keys:
+    - column: account_id
+      references_table: accounts
+      references_column: account_id
+      join_hint: "JOIN accounts ac ON t.account_id = ac.account_id"
+
+  query_notes: >
+    Transactions are at the ACCOUNT level, not the customer level.
+    To get all transactions for a customer, always join:
+    customers → accounts → transactions. Never join transactions directly to customers.
+    To compute spend, filter transaction_type IN ('Purchase','Payment','Withdrawal')
+    or use amount < 0 depending on sign convention in your data.
+    Use ABS(amount) to avoid negative totals in SUM aggregations.
+    merchant is NULL for non-retail transactions (transfers, fees, interest) —
+    always filter IS NOT NULL when grouping by merchant.
+    For date range queries, index on transaction_date is assumed.
+
+  sample_queries:
+    - intent: "monthly spend for a specific customer"
+      sql: >
+        SELECT strftime('%Y-%m', t.transaction_date) AS month,
+               SUM(ABS(t.amount))                    AS total_spend
+        FROM customers c
+        JOIN accounts ac    ON c.customer_id  = ac.customer_id
+        JOIN transactions t ON ac.account_id  = t.account_id
+        WHERE c.customer_id = ?
+          AND t.transaction_type IN ('Purchase', 'Payment', 'Withdrawal')
+        GROUP BY month
+        ORDER BY month;
+
+    - intent: "top merchants by total spend"
+      sql: >
+        SELECT merchant,
+               COUNT(*)             AS transaction_count,
+               SUM(ABS(amount))     AS total_spent
+        FROM transactions
+        WHERE merchant IS NOT NULL
+        GROUP BY merchant
+        ORDER BY total_spent DESC
+        LIMIT 20;
+
+    - intent: "transaction volume by type"
+      sql: >
+        SELECT transaction_type,
+               COUNT(*)        AS transaction_count,
+               SUM(amount)     AS total_amount,
+               AVG(amount)     AS avg_amount
+        FROM transactions
+        GROUP BY transaction_type
+        ORDER BY transaction_count DESC;
+
+    - intent: "all transactions for a customer in a date range"
+      sql: >
+        SELECT t.transaction_date, t.transaction_type,
+               t.amount, t.merchant, ac.account_type
+        FROM customers c
+        JOIN accounts ac    ON c.customer_id = ac.customer_id
+        JOIN transactions t ON ac.account_id = t.account_id
+        WHERE c.customer_id = ?
+          AND t.transaction_date BETWEEN '2024-01-01' AND '2024-12-31'
+        ORDER BY t.transaction_date DESC;

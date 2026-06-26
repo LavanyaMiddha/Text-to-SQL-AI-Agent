@@ -1,0 +1,67 @@
+database:
+  name: financial_agent.db
+  engine: SQLite
+  description: >
+    A financial services database capturing customers, advisors, accounts,
+    portfolios, market data, transactions, loans, credit cards, and support
+    activity. Designed for a Text-to-SQL chatbot serving financial analysts
+    and customer service agents.
+
+table:
+  table_name: advisors
+  description: >
+    Financial advisors who manage customer relationships. Each advisor is
+    assigned to a geographic region and may oversee many customers.
+  primary_key: advisor_id
+  columns:
+    advisor_id:
+      type: INTEGER
+      nullable: false
+      description: Unique identifier for each advisor.
+    advisor_name:
+      type: TEXT
+      nullable: true
+      description: Full name of the financial advisor.
+    region:
+      type: TEXT
+      nullable: true
+      description: Geographic region the advisor operates in.
+      sample_values: ["Northeast", "Southeast", "Midwest", "West", "Southwest"]
+
+  foreign_keys: []
+
+  query_notes: >
+    advisors is a parent table — it has no foreign keys itself.
+    To get customers under an advisor, join advisors → customers on advisor_id.
+    To compute AUM per advisor, traverse advisors → customers → accounts →
+    portfolios → holdings → market_prices.
+
+  sample_queries:
+    - intent: "list all advisors and their regions"
+      sql: >
+        SELECT advisor_id, advisor_name, region
+        FROM advisors
+        ORDER BY region, advisor_name;
+
+    - intent: "number of customers per advisor"
+      sql: >
+        SELECT a.advisor_name, a.region,
+               COUNT(c.customer_id) AS total_customers
+        FROM advisors a
+        LEFT JOIN customers c ON a.advisor_id = c.advisor_id
+        GROUP BY a.advisor_id, a.advisor_name, a.region
+        ORDER BY total_customers DESC;
+
+    - intent: "total AUM per advisor"
+      sql: >
+        SELECT a.advisor_name,
+               SUM(h.shares * mp.closing_price) AS aum
+        FROM advisors a
+        JOIN customers c      ON a.advisor_id   = c.advisor_id
+        JOIN accounts ac      ON c.customer_id  = ac.customer_id
+        JOIN portfolios p     ON ac.account_id  = p.account_id
+        JOIN holdings h       ON p.portfolio_id = h.portfolio_id
+        JOIN market_prices mp ON h.security_id  = mp.security_id
+        WHERE mp.price_date = (SELECT MAX(price_date) FROM market_prices)
+        GROUP BY a.advisor_id, a.advisor_name
+        ORDER BY aum DESC;

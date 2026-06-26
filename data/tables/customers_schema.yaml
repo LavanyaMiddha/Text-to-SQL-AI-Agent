@@ -1,0 +1,107 @@
+database:
+  name: financial_agent.db
+  engine: SQLite
+  description: >
+    A financial services database capturing customers, advisors, accounts,
+    portfolios, market data, transactions, loans, credit cards, and support
+    activity. Designed for a Text-to-SQL chatbot serving financial analysts
+    and customer service agents.
+
+table:
+  table_name: customers
+  description: >
+    Core customer (client) records. Each customer is assigned one advisor
+    and may hold multiple accounts, loans, and credit cards. The central
+    hub table — most queries will pass through customers.
+  primary_key: customer_id
+  columns:
+    customer_id:
+      type: INTEGER
+      nullable: false
+      description: Unique identifier for each customer.
+    first_name:
+      type: TEXT
+      nullable: true
+      description: Customer's first name.
+    last_name:
+      type: TEXT
+      nullable: true
+      description: Customer's last name.
+    age:
+      type: INTEGER
+      nullable: true
+      description: Customer's age in years.
+    city:
+      type: TEXT
+      nullable: true
+      description: City of residence.
+    state:
+      type: TEXT
+      nullable: true
+      description: US state abbreviation (e.g., "NY", "CA").
+    annual_income:
+      type: REAL
+      nullable: true
+      description: Customer's reported gross annual income in USD.
+    customer_since:
+      type: DATE
+      nullable: true
+      description: Date the customer first opened a relationship. Format YYYY-MM-DD.
+    advisor_id:
+      type: INTEGER
+      nullable: true
+      description: FK to the advisor managing this customer.
+
+  foreign_keys:
+    - column: advisor_id
+      references_table: advisors
+      references_column: advisor_id
+      join_hint: "JOIN advisors a ON c.advisor_id = a.advisor_id"
+
+  query_notes: >
+    Full customer name is not a single column — always concatenate:
+    first_name || ' ' || last_name AS customer_name.
+    Customer tenure in years: (julianday('now') - julianday(customer_since)) / 365.25.
+    Transactions are NOT directly on customers — join customers → accounts → transactions.
+    A customer may have zero accounts, loans, or credit cards; use LEFT JOIN when
+    the question implies "show all customers even if they have none."
+
+  sample_queries:
+    - intent: "full customer list with advisor"
+      sql: >
+        SELECT c.customer_id,
+               c.first_name || ' ' || c.last_name AS customer_name,
+               c.city, c.state, c.annual_income,
+               a.advisor_name
+        FROM customers c
+        LEFT JOIN advisors a ON c.advisor_id = a.advisor_id
+        ORDER BY c.last_name;
+
+    - intent: "customer tenure in years"
+      sql: >
+        SELECT customer_id,
+               first_name || ' ' || last_name AS customer_name,
+               customer_since,
+               ROUND((julianday('now') - julianday(customer_since)) / 365.25, 1) AS tenure_years
+        FROM customers
+        ORDER BY tenure_years DESC;
+
+    - intent: "customers by state"
+      sql: >
+        SELECT state, COUNT(*) AS customer_count
+        FROM customers
+        GROUP BY state
+        ORDER BY customer_count DESC;
+
+    - intent: "customers by age bracket"
+      sql: >
+        SELECT
+          CASE
+            WHEN age < 30 THEN 'Under 30'
+            WHEN age BETWEEN 30 AND 44 THEN '30-44'
+            WHEN age BETWEEN 45 AND 59 THEN '45-59'
+            ELSE '60+'
+          END AS age_bracket,
+          COUNT(*) AS customer_count
+        FROM customers
+        GROUP BY age_bracket;

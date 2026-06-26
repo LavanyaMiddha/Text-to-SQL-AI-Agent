@@ -1,0 +1,82 @@
+database:
+  name: financial_agent.db
+  engine: SQLite
+  description: >
+    A financial services database capturing customers, advisors, accounts,
+    portfolios, market data, transactions, loans, credit cards, and support
+    activity. Designed for a Text-to-SQL chatbot serving financial analysts
+    and customer service agents.
+
+table:
+  table_name: securities
+  description: >
+    Reference (dimension) table of all tradable securities — stocks, ETFs,
+    bonds, and funds. Acts as the master list used by both holdings and
+    market_prices. Does not store prices or quantities; those live in
+    market_prices and holdings respectively.
+  primary_key: security_id
+
+  columns:
+    security_id:
+      type: INTEGER
+      nullable: false
+      description: Unique identifier for each security.
+    ticker:
+      type: TEXT
+      nullable: true
+      description: Exchange ticker symbol (e.g., "AAPL", "MSFT", "SPY").
+    company_name:
+      type: TEXT
+      nullable: true
+      description: Full legal or common name of the issuing company or fund.
+    sector:
+      type: TEXT
+      nullable: true
+      description: Industry sector classification of the security.
+      sample_values:
+        - Technology
+        - Healthcare
+        - Financials
+        - Energy
+        - Consumer Discretionary
+        - Utilities
+        - Real Estate
+        - Industrials
+        - Materials
+        - Communication Services
+
+  foreign_keys: []
+
+  query_notes: >
+    securities is a pure reference table with no FKs of its own.
+    It is referenced by both holdings (via security_id) and market_prices (via security_id).
+    To get current price of a security, always join to market_prices and filter:
+    WHERE price_date = (SELECT MAX(price_date) FROM market_prices).
+    To get quantity held, join to holdings.
+    To get market value: holdings.shares * market_prices.closing_price.
+    Ticker is the most natural user-facing identifier — users will say "AAPL" not security_id 4.
+
+  sample_queries:
+    - intent: "find a security by ticker"
+      sql: >
+        SELECT security_id, ticker, company_name, sector
+        FROM securities
+        WHERE ticker = 'AAPL';
+
+    - intent: "all securities in a sector"
+      sql: >
+        SELECT ticker, company_name
+        FROM securities
+        WHERE sector = 'Technology'
+        ORDER BY company_name;
+
+    - intent: "sector breakdown of all holdings by market value"
+      sql: >
+        SELECT s.sector,
+               SUM(h.shares * mp.closing_price) AS sector_value
+        FROM securities s
+        JOIN holdings h       ON s.security_id  = h.security_id
+        JOIN market_prices mp ON s.security_id  = mp.security_id
+        WHERE mp.price_date = (SELECT MAX(price_date) FROM market_prices)
+        GROUP BY s.sector
+        ORDER BY sector_value DESC;

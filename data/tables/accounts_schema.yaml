@@ -1,0 +1,85 @@
+database:
+  name: financial_agent.db
+  engine: SQLite
+  description: >
+    A financial services database capturing customers, advisors, accounts,
+    portfolios, market data, transactions, loans, credit cards, and support
+    activity. Designed for a Text-to-SQL chatbot serving financial analysts
+    and customer service agents.
+
+table:
+  table_name: accounts
+  description: >
+    Financial accounts owned by customers. One customer may hold multiple
+    accounts of different types (checking, savings, brokerage, IRA, etc.).
+    Cash balance lives here; investment market value must be computed from
+    holdings and market_prices.
+  primary_key: account_id
+
+  columns:
+    account_id:
+      type: INTEGER
+      nullable: false
+      description: Unique identifier for each account.
+    customer_id:
+      type: INTEGER
+      nullable: true
+      description: FK to the owning customer.
+    account_type:
+      type: TEXT
+      nullable: true
+      description: Category of the account product.
+      sample_values: ["Checking", "Savings", "Brokerage", "IRA", "Roth IRA", "401k"]
+    balance:
+      type: REAL
+      nullable: true
+      description: >
+        Current cash balance of the account in USD. This is liquid cash only —
+        does not include the market value of investment holdings in portfolios.
+    open_date:
+      type: DATE
+      nullable: true
+      description: Date the account was opened. Format YYYY-MM-DD.
+
+  foreign_keys:
+    - column: customer_id
+      references_table: customers
+      references_column: customer_id
+      join_hint: "JOIN customers c ON ac.customer_id = c.customer_id"
+
+  query_notes: >
+    accounts.balance is CASH ONLY. Do not confuse with portfolio/investment value,
+    which requires: holdings.shares * market_prices.closing_price.
+    Transactions are linked to accounts, not customers directly.
+    Portfolios (investment holdings) are also linked to accounts — only
+    Brokerage, IRA, Roth IRA, and 401k accounts typically have portfolios.
+    One customer can have multiple accounts of the same type.
+
+  sample_queries:
+    - intent: "total cash balance per customer across all accounts"
+      sql: >
+        SELECT c.customer_id,
+               c.first_name || ' ' || c.last_name AS customer_name,
+               SUM(ac.balance) AS total_balance
+        FROM customers c
+        JOIN accounts ac ON c.customer_id = ac.customer_id
+        GROUP BY c.customer_id, customer_name
+        ORDER BY total_balance DESC;
+
+    - intent: "account type distribution"
+      sql: >
+        SELECT account_type,
+               COUNT(*)     AS account_count,
+               SUM(balance) AS total_balance,
+               AVG(balance) AS avg_balance
+        FROM accounts
+        GROUP BY account_type
+        ORDER BY total_balance DESC;
+
+    - intent: "accounts opened per month"
+      sql: >
+        SELECT strftime('%Y-%m', open_date) AS month,
+               COUNT(*) AS new_accounts
+        FROM accounts
+        GROUP BY month
+        ORDER BY month;

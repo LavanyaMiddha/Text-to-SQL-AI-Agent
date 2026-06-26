@@ -1,0 +1,89 @@
+database:
+  name: financial_agent.db
+  engine: SQLite
+  description: >
+    A financial services database capturing customers, advisors, accounts,
+    portfolios, market data, transactions, loans, credit cards, and support
+    activity. Designed for a Text-to-SQL chatbot serving financial analysts
+    and customer service agents.
+
+table:
+  table_name: credit_cards
+  description: >
+    Credit card accounts associated with customers. Tracks credit limits,
+    current balances (revolving debt), and accumulated rewards points.
+    One customer may hold multiple credit cards. Credit utilization
+    (current_balance / credit_limit) is a key risk and product metric.
+  primary_key: card_id
+
+  columns:
+    card_id:
+      type: INTEGER
+      nullable: false
+      description: Unique identifier for each credit card account.
+    customer_id:
+      type: INTEGER
+      nullable: true
+      description: FK to the card-holding customer.
+    credit_limit:
+      type: REAL
+      nullable: true
+      description: Maximum allowed revolving balance on the card in USD.
+    current_balance:
+      type: REAL
+      nullable: true
+      description: Current outstanding balance owed on the card in USD.
+    rewards_points:
+      type: INTEGER
+      nullable: true
+      description: Accumulated loyalty/rewards points. Integer count.
+
+  foreign_keys:
+    - column: customer_id
+      references_table: customers
+      references_column: customer_id
+      join_hint: "JOIN customers c ON cc.customer_id = c.customer_id"
+
+  query_notes: >
+    Credit utilization = current_balance / credit_limit * 100.
+    Use NULLIF(credit_limit, 0) to avoid division-by-zero errors.
+    High utilization (>70%) is a credit risk signal.
+    Industry standard thresholds: <30% healthy, 30-70% moderate, >70% high risk.
+    current_balance is DEBT owed (liability), not available credit.
+    Available credit = credit_limit - current_balance.
+    A customer may hold multiple cards — use SUM() when aggregating
+    total credit exposure or total rewards per customer.
+
+  sample_queries:
+    - intent: "credit utilization per card"
+      sql: >
+        SELECT cc.card_id,
+               c.first_name || ' ' || c.last_name AS customer_name,
+               cc.credit_limit,
+               cc.current_balance,
+               ROUND(cc.current_balance / NULLIF(cc.credit_limit, 0) * 100, 2) AS utilization_pct
+        FROM credit_cards cc
+        JOIN customers c ON cc.customer_id = c.customer_id
+        ORDER BY utilization_pct DESC;
+
+    - intent: "high utilization customers (over 70%)"
+      sql: >
+        SELECT c.first_name || ' ' || c.last_name AS customer_name,
+               SUM(cc.credit_limit)       AS total_limit,
+               SUM(cc.current_balance)    AS total_balance,
+               ROUND(SUM(cc.current_balance) / NULLIF(SUM(cc.credit_limit), 0) * 100, 2) AS utilization_pct
+        FROM customers c
+        JOIN credit_cards cc ON c.customer_id = cc.customer_id
+        GROUP BY c.customer_id, customer_name
+        HAVING utilization_pct > 70
+        ORDER BY utilization_pct DESC;
+
+    - intent: "total rewards points per customer"
+      sql: >
+        SELECT c.customer_id,
+               c.first_name || ' ' || c.last_name AS customer_name,
+               SUM(cc.rewards_points)             AS total_rewards_points
+        FROM customers c
+        JOIN credit_cards cc ON c.customer_id = cc.customer_id
+        GROUP BY c.customer_id, customer_name
+        ORDER BY total_rewards_points DESC;

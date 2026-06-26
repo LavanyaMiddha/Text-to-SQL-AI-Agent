@@ -1,0 +1,97 @@
+database:
+  name: financial_agent.db
+  engine: SQLite
+  description: >
+    A financial services database capturing customers, advisors, accounts,
+    portfolios, market data, transactions, loans, credit cards, and support
+    activity. Designed for a Text-to-SQL chatbot serving financial analysts
+    and customer service agents.
+
+table:
+  table_name: support_tickets
+  description: >
+    Customer service support tickets logged by or for customers. Tracks
+    the category of issue, open date, and current resolution status. Useful
+    for churn risk analysis, service quality reporting, and identifying
+    customers with unresolved complaints.
+  primary_key: ticket_id
+
+  columns:
+    ticket_id:
+      type: INTEGER
+      nullable: false
+      description: Unique identifier for each support ticket.
+    customer_id:
+      type: INTEGER
+      nullable: true
+      description: FK to the customer who raised the ticket.
+    created_date:
+      type: DATE
+      nullable: true
+      description: Date the ticket was opened. Format YYYY-MM-DD.
+    category:
+      type: TEXT
+      nullable: true
+      description: Issue type or department the ticket is routed to.
+      sample_values: ["Billing", "Fraud", "Account Access", "Investment", "Loan", "Credit Card", "General Inquiry"]
+    status:
+      type: TEXT
+      nullable: true
+      description: Current resolution state of the ticket.
+      sample_values: ["Open", "In Progress", "Resolved", "Closed", "Escalated"]
+
+  foreign_keys:
+    - column: customer_id
+      references_table: customers
+      references_column: customer_id
+      join_hint: "JOIN customers c ON st.customer_id = c.customer_id"
+
+  query_notes: >
+    "Open" tickets = status NOT IN ('Resolved', 'Closed').
+    This includes 'Open', 'In Progress', and 'Escalated' statuses.
+    The schema currently has no resolved_date column — resolution time
+    cannot be computed without adding that column.
+    Customers with many open tickets are a churn risk signal.
+    Escalated tickets should be flagged separately as highest priority.
+    created_date is the only date column — use it for volume trend analysis.
+
+  sample_queries:
+    - intent: "open tickets per customer"
+      sql: >
+        SELECT c.customer_id,
+               c.first_name || ' ' || c.last_name AS customer_name,
+               COUNT(st.ticket_id) AS open_ticket_count
+        FROM customers c
+        JOIN support_tickets st ON c.customer_id = st.customer_id
+        WHERE st.status NOT IN ('Resolved', 'Closed')
+        GROUP BY c.customer_id, customer_name
+        ORDER BY open_ticket_count DESC;
+
+    - intent: "ticket volume by category and status"
+      sql: >
+        SELECT category,
+               COUNT(*) AS total_tickets,
+               SUM(CASE WHEN status IN ('Resolved','Closed') THEN 1 ELSE 0 END) AS resolved,
+               SUM(CASE WHEN status NOT IN ('Resolved','Closed') THEN 1 ELSE 0 END) AS open
+        FROM support_tickets
+        GROUP BY category
+        ORDER BY total_tickets DESC;
+
+    - intent: "escalated tickets with customer details"
+      sql: >
+        SELECT st.ticket_id, st.created_date, st.category,
+               c.first_name || ' ' || c.last_name AS customer_name,
+               a.advisor_name
+        FROM support_tickets st
+        JOIN customers c ON st.customer_id = c.customer_id
+        LEFT JOIN advisors a ON c.advisor_id = a.advisor_id
+        WHERE st.status = 'Escalated'
+        ORDER BY st.created_date ASC;
+
+    - intent: "monthly ticket volume trend"
+      sql: >
+        SELECT strftime('%Y-%m', created_date) AS month,
+               COUNT(*) AS ticket_count
+        FROM support_tickets
+        GROUP BY month
+        ORDER BY month;
