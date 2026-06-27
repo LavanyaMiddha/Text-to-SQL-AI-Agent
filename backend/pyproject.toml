@@ -20,6 +20,7 @@ dependencies = [
     "langsmith>=0.9.1",
     "mcp>=1.28.0",
     "pinecone>=7.3.0",
+    "pinecone-text>=0.11.0",
     "pydantic-settings>=2.14.2",
     "pymupdf>=1.27.2.3",
     "pymupdf4llm>=1.27.2.3",
