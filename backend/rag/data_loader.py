@@ -23,9 +23,8 @@ from pathlib import Path
 from typing import List, Optional
 
 
-# ---------------------------------------------------------------------------
-# Chunk dataclass
-# ---------------------------------------------------------------------------
+### Chunk dataclass
+
 
 @dataclass
 class Chunk:
@@ -35,10 +34,9 @@ class Chunk:
     metadata: dict = field(default_factory=dict)
 
 
-# ---------------------------------------------------------------------------
 # Embedding prefix map
 # Prepended to embed_text to pull chunk types apart in embedding space.
-# ---------------------------------------------------------------------------
+
 
 PREFIX_MAP = {
     "table_schema":    "SQL schema definition for table: ",
@@ -51,9 +49,7 @@ PREFIX_MAP = {
 }
 
 
-# ---------------------------------------------------------------------------
 # YAML parser  — one chunk per file
-# ---------------------------------------------------------------------------
 
 def load_yaml_table_schema(path: str | Path) -> List[Chunk]:
     """
@@ -149,9 +145,7 @@ def load_yaml_table_schema(path: str | Path) -> List[Chunk]:
     ]
 
 
-# ---------------------------------------------------------------------------
 # Markdown parser  — split strategy depends on file type
-# ---------------------------------------------------------------------------
 
 def load_markdown_file(path: str | Path) -> List[Chunk]:
     """
@@ -182,9 +176,7 @@ def load_markdown_file(path: str | Path) -> List[Chunk]:
         return _split_by_h2(text, path, chunk_type="relationship")
 
 
-# ---------------------------------------------------------------------------
 # Markdown splitters
-# ---------------------------------------------------------------------------
 
 def _split_query_patterns(text: str, path: Path) -> List[Chunk]:
     """
@@ -436,9 +428,9 @@ def _split_by_h2(text: str, path: Path, chunk_type: str) -> List[Chunk]:
     return chunks
 
 
-# ---------------------------------------------------------------------------
-# Convenience: load an entire directory
-# ---------------------------------------------------------------------------
+
+### Convenience: load an entire directory
+
 
 def load_knowledge_base(kb_dir: str | Path) -> List[Chunk]:
     """
@@ -461,9 +453,9 @@ def load_knowledge_base(kb_dir: str | Path) -> List[Chunk]:
     return all_chunks
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+
+### Helpers
+
 
 def _extract_field(text: str, label: str) -> str:
     """Extract the value after a bold **Label:** line."""
@@ -476,12 +468,8 @@ def _indent(text: str, spaces: int) -> str:
     return "\n".join(pad + line for line in text.splitlines())
 
 
-# ---------------------------------------------------------------------------
-# Main — test runner
-# ---------------------------------------------------------------------------
+### Main — test runner
 
-
-# ---------------------------------------------------------------------------
 def _print_chunk(
     num: int,
     chunk: "Chunk",
@@ -542,9 +530,7 @@ if __name__ == "__main__":
 
     SEP = "=" * 70
 
-    # -----------------------------------------------------------------------
-    # Single file mode
-    # -----------------------------------------------------------------------
+    ### Single file mode
     if args.file:
         path = Path(args.file)
         print(f"\n{SEP}")
@@ -576,9 +562,8 @@ if __name__ == "__main__":
                 _print_chunk(i, chunk, show_embed=args.show_embed)
         sys.exit(0)
 
-    # -----------------------------------------------------------------------
-    # Full KB mode
-    # -----------------------------------------------------------------------
+    ### Full KB mode
+
     kb_dir = Path(args.kb_dir)
     print(f"\n{SEP}")
     print(f"Loading full knowledge base from: {kb_dir.resolve()}")
@@ -586,9 +571,9 @@ if __name__ == "__main__":
 
     all_chunks = load_knowledge_base(kb_dir)
 
-    # -----------------------------------------------------------------------
-    # Summary table
-    # -----------------------------------------------------------------------
+
+    ### Summary table
+
     print(f"\n{SEP}")
     print("CHUNK SUMMARY")
     print(SEP)
@@ -598,9 +583,9 @@ if __name__ == "__main__":
     print(f"  {'─'*28}")
     print(f"  {'TOTAL':<22} {len(all_chunks):>3}")
 
-    # -----------------------------------------------------------------------
-    # ID list — every chunk
-    # -----------------------------------------------------------------------
+
+    ### ID list — every chunk
+
     print(f"\n{SEP}")
     print("ALL CHUNK IDs")
     print(SEP)
@@ -608,9 +593,8 @@ if __name__ == "__main__":
         type_tag = chunk.metadata.get("type", "unknown")
         print(f"  [{type_tag:<18}]  {chunk.id}")
 
-    # -----------------------------------------------------------------------
-    # Specific chunk lookup
-    # -----------------------------------------------------------------------
+    ### Specific chunk lookup
+
     if args.chunk_id:
         match = next((c for c in all_chunks if c.id == args.chunk_id), None)
         if match:
@@ -623,9 +607,9 @@ if __name__ == "__main__":
             print("Valid IDs listed above.")
         sys.exit(0)
 
-    # -----------------------------------------------------------------------
-    # Per-type sample: print first chunk of each type
-    # -----------------------------------------------------------------------
+
+    ### Per-type sample: print first chunk of each type
+
     type_filter = args.type
     print(f"\n{SEP}")
     title = f"SAMPLE CHUNK PER TYPE" if not type_filter else f"CHUNKS OF TYPE: {type_filter}"
@@ -649,9 +633,8 @@ if __name__ == "__main__":
                 _print_chunk(sample_num, chunk, show_embed=args.show_embed)
                 sample_num += 1
 
-    # -----------------------------------------------------------------------
-    # Validation checks
-    # -----------------------------------------------------------------------
+### Validation Checks
+
     print(f"\n{SEP}")
     print("VALIDATION CHECKS")
     print(SEP)
@@ -753,7 +736,3 @@ if __name__ == "__main__":
         print(f"  Result: {errors} check(s) FAILED — review above")
     print()
 
-
-# ---------------------------------------------------------------------------
-# Print helper (used by main only)
-# ---------------------------------------------------------------------------
